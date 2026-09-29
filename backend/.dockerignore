@@ -1,0 +1,33 @@
+# python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env
+pip-log.txt
+pip-delete-this-directory.txt
+.tox
+.cache
+nosetests.xml
+*.cover
+.mypy_cache
+media/
+staticfiles/
+.pytest_cache
+.hypothesis
+venv/
+
+# other
+tests/
+*.log
+.git
+
+# environment
+.env
+
+
+# coverage
+.coverage
+.coverage.*
+coverage.xml
