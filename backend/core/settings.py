@@ -249,6 +249,10 @@ APPLE_TEAM_ID = env("APPLE_TEAM_ID", default="")
 APPLE_KEY_ID = env("APPLE_KEY_ID", default="")
 APPLE_PRIVATE_KEY = env.str("APPLE_PRIVATE_KEY", default="", multiline=True)
 
+# Sign in by just typing a display name, for testing in Expo Go without Apple.
+# Only ever possible with DEBUG on, so never in production.
+DEV_SIGN_IN = DEBUG and env.bool("DEV_SIGN_IN", default=True)
+
 SENTRY_DSN = env("SENTRY_DSN", default="")
 if SENTRY_DSN:
     import sentry_sdk

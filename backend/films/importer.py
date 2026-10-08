@@ -10,6 +10,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from .numbers import words_to_digits
 from .models import Credit, Film, FilmSearchTitle, Genre, Person, SkippedTmdbFilm
 
 logger = logging.getLogger(__name__)
@@ -34,11 +35,51 @@ FILM_FIELDS = [
 
 
 def normalise_title(text):
-    """Lower-case, strip accents and punctuation: 'Amélie!' -> 'amelie'."""
+    """The form titles are searched in: lower-cased, accents and punctuation
+    stripped, English number words as digits.
+    'Amélie!' -> 'amelie'; 'Twelve Angry Men' -> '12 angry men'."""
     text = unicodedata.normalize("NFKD", text)
     text = "".join(c for c in text if not unicodedata.combining(c))
     text = re.sub(r"[^\w]+", " ", text.lower())
-    return " ".join(text.split())
+    return " ".join(words_to_digits(text.split()))
+
+
+def search_titles(film_id, original_title, translations, alternative_titles=None):
+    """FilmSearchTitle rows for a film: its original title, its title in each
+    catalogue language, and alternative titles (e.g. "Seven" for Se7en).
+    `translations` maps language -> {"title": ...}; `alternative_titles` maps
+    language -> [title, ...]."""
+    titles = [(FilmSearchTitle.ORIGINAL, original_title)] + [
+        (language, t["title"]) for language, t in translations.items()
+    ]
+    for language, alternatives in (alternative_titles or {}).items():
+        titles += [(FilmSearchTitle.alternative(language), t) for t in alternatives]
+
+    rows = {}
+    main_texts = {}  # language -> normalised texts of real titles
+    for language, title in titles:
+        if not FilmSearchTitle.is_alternative_language(language):
+            main_texts.setdefault(language, set()).add(normalise_title(title)[:500])
+
+    for language, title in titles:
+        text = normalise_title(title)[:500]
+        if not text:
+            continue
+        if FilmSearchTitle.is_alternative_language(language):
+            # Skip an alternative that reads the same as a real title searched
+            # alongside it. Real titles in other languages don't count: e.g.
+            # Se7en's French title is "Seven", but English searches don't see it.
+            base = language.removeprefix(FilmSearchTitle.ALTERNATIVE_PREFIX)
+            searched_with = {base, FilmSearchTitle.ORIGINAL, "en"}
+            if any(text in main_texts.get(other, ()) for other in searched_with):
+                continue
+        rows.setdefault(
+            (language, text),
+            FilmSearchTitle(
+                film_id=film_id, language=language, title=title[:500], text=text
+            ),
+        )
+    return list(rows.values())
 
 
 def sync_genres(client):
@@ -154,14 +195,11 @@ def upsert_movies(movies):
     Credit.objects.bulk_create(credits.values())
 
     FilmSearchTitle.objects.bulk_create(
-        FilmSearchTitle(film_id=film_ids[m.tmdb_id], text=text[:500])
+        title
         for m in movies
-        for text in {
-            normalise_title(title)
-            for title in [m.original_title]
-            + [t["title"] for t in m.translations.values()]
-        }
-        if text
+        for title in search_titles(
+            film_ids[m.tmdb_id], m.original_title, m.translations, m.alternative_titles
+        )
     )
 
     SkippedTmdbFilm.objects.filter(tmdb_id__in=film_ids).delete()
@@ -202,6 +240,10 @@ def fetch_and_store(client, tmdb_ids, min_votes, batch_size=500, workers=16, log
                 meets = m.vote_count >= min_votes or m.tmdb_id in existing
                 (keep if meets else below).append(m)
             upsert_movies(keep)
+            # Films that have now passed the threshold aren't "skipped" any more.
+            SkippedTmdbFilm.objects.filter(
+                tmdb_id__in=[m.tmdb_id for m in keep]
+            ).delete()
             record_skipped(below)
             stored += len(keep)
             skipped += len(below)
@@ -225,3 +267,15 @@ def ids_needing_fetch(candidate_ids, refresh=False, recheck_skipped_after_days=3
         )
     )
     return [i for i in candidate_ids if i not in have and i not in recently_skipped]
+
+
+def skipped_to_recheck(tmdb_ids):
+    """Films among `tmdb_ids` that were below the vote threshold when last
+    checked, however recently. Used for films that are changing or popular on
+    TMDB, which is how new releases look while their vote counts climb, so
+    they don't wait the usual 30 days to be checked again."""
+    return list(
+        SkippedTmdbFilm.objects.filter(tmdb_id__in=list(tmdb_ids)).values_list(
+            "tmdb_id", flat=True
+        )
+    )

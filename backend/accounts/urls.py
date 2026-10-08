@@ -5,6 +5,7 @@ from . import views
 
 urlpatterns = [
     path("auth/apple/", views.AppleSignInView.as_view(), name="auth-apple"),
+    path("auth/dev/", views.DevSignInView.as_view(), name="auth-dev"),
     path("auth/refresh/", TokenRefreshView.as_view(), name="auth-refresh"),
     path("me/", views.MeView.as_view(), name="me"),
 ]

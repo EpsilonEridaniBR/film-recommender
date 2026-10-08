@@ -10,6 +10,13 @@ class AppleSignInSerializer(serializers.Serializer):
     authorization_code = serializers.CharField(required=False, allow_blank=True)
 
 
+class DevSignInSerializer(serializers.Serializer):
+    display_name = serializers.CharField()
+
+    def validate_display_name(self, value):
+        return clean_display_name(value)
+
+
 class MeSerializer(serializers.ModelSerializer):
     profile_complete = serializers.SerializerMethodField()
     pending_edits = serializers.SerializerMethodField()

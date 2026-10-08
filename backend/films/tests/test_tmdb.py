@@ -1,3 +1,5 @@
+import pytest
+
 from films.importer import normalise_title
 from films.tests.factories import parsed
 
@@ -51,3 +53,52 @@ def test_normalise_title():
     assert normalise_title("Amélie!") == "amelie"
     assert normalise_title("Spider-Man: No Way Home") == "spider man no way home"
     assert normalise_title("  Alien³ ") == "alien3"
+
+
+@pytest.mark.parametrize(
+    "title, expected",
+    [
+        ("Twelve Angry Men", "12 angry men"),
+        ("12 Angry Men", "12 angry men"),
+        ("Ten Things I Hate About You", "10 things i hate about you"),
+        ("Two Thousand and One", "2001"),
+        ("One Hundred and One Dalmatians", "101 dalmatians"),
+        ("Nineteen Eighty-Four", "1984"),
+        ("Twenty One Pistols", "21 pistols"),
+        ("Seven Seven", "7 7"),
+        ("Stand and Deliver", "stand and deliver"),
+        ("The Forty-Year-Old Virgin", "the 40 year old virgin"),
+        # Roman numerals (but not the word "I")
+        ("Rocky II", "rocky 2"),
+        ("Star Wars: Episode V", "star wars episode 5"),
+        ("10 Things I Hate About You", "10 things i hate about you"),
+        ("Civil War", "civil war"),
+        # Ordinals, as words or digits
+        ("The Second Best Exotic Marigold Hotel", "the 2 best exotic marigold hotel"),
+        ("2nd Best Exotic Marigold Hotel", "2 best exotic marigold hotel"),
+        ("21st Century Women", "21 century women"),
+        ("Twenty-First Century Women", "21 century women"),
+        ("50 First Dates", "51 dates"),
+        ("Fifty First Dates", "51 dates"),
+    ],
+)
+def test_normalise_title_turns_number_words_into_digits(title, expected):
+    assert normalise_title(title) == expected
+
+
+def test_alternative_titles_are_kept_for_catalogue_regions():
+    movie = parsed(
+        807,
+        "Se7en",
+        alternative_titles=[
+            ("US", "Seven"),
+            ("GB", "Seven"),
+            ("BR", "Seven: Os Sete Crimes Capitais"),
+            ("CA", "Sept"),
+            ("JP", "セブン"),
+        ],
+    )
+    assert movie.alternative_titles == {
+        "en": ["Seven", "Seven"],
+        "pt": ["Seven: Os Sete Crimes Capitais"],
+    }

@@ -1,7 +1,9 @@
 import uuid
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.http import Http404
 from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import generics, permissions, serializers, status
 from rest_framework.response import Response
@@ -9,9 +11,52 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from . import apple
-from .serializers import AppleSignInSerializer, MeSerializer
+from .serializers import AppleSignInSerializer, DevSignInSerializer, MeSerializer
 
 User = get_user_model()
+
+
+SignInResponseSerializer = inline_serializer(
+    "SignInResponse",
+    {
+        "access": serializers.CharField(),
+        "refresh": serializers.CharField(),
+        "user": MeSerializer(),
+        "created": serializers.BooleanField(),
+    },
+)
+
+
+def sign_in_response(user, created):
+    """API tokens for `user`, or 403 if their account is disabled."""
+    if not user.is_active:
+        return Response(
+            {"detail": "This account is disabled."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    tokens = RefreshToken.for_user(user)
+    return Response(
+        {
+            "access": str(tokens.access_token),
+            "refresh": str(tokens),
+            "user": MeSerializer(user).data,
+            "created": created,
+        },
+        status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+    )
+
+
+def create_user(apple_sub, **defaults):
+    with transaction.atomic():
+        user, created = User.objects.get_or_create(
+            apple_sub=apple_sub,
+            # Django needs a unique username; it's internal and never shown.
+            defaults={"username": uuid.uuid4().hex, **defaults},
+        )
+        if created:
+            user.set_unusable_password()
+            user.save()
+    return user, created
 
 
 class AppleSignInView(APIView):
@@ -21,18 +66,7 @@ class AppleSignInView(APIView):
 
     permission_classes = [permissions.AllowAny]
 
-    @extend_schema(
-        request=AppleSignInSerializer,
-        responses=inline_serializer(
-            "AppleSignInResponse",
-            {
-                "access": serializers.CharField(),
-                "refresh": serializers.CharField(),
-                "user": MeSerializer(),
-                "created": serializers.BooleanField(),
-            },
-        ),
-    )
+    @extend_schema(request=AppleSignInSerializer, responses=SignInResponseSerializer)
     def post(self, request):
         data = AppleSignInSerializer(data=request.data)
         data.is_valid(raise_exception=True)
@@ -41,38 +75,33 @@ class AppleSignInView(APIView):
         except apple.AppleAuthError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_401_UNAUTHORIZED)
 
-        with transaction.atomic():
-            user, created = User.objects.get_or_create(
-                apple_sub=claims["sub"],
-                # Django needs a unique username; it's internal and never shown.
-                defaults={"username": uuid.uuid4().hex},
+        user, created = create_user(claims["sub"])
+        if user.is_active:
+            refresh_token = apple.exchange_authorization_code(
+                data.validated_data.get("authorization_code")
             )
-            if created:
-                user.set_unusable_password()
-                user.save()
-        if not user.is_active:
-            return Response(
-                {"detail": "This account is disabled."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+            if refresh_token:
+                user.apple_refresh_token = refresh_token
+                user.save(update_fields=["apple_refresh_token"])
+        return sign_in_response(user, created)
 
-        refresh_token = apple.exchange_authorization_code(
-            data.validated_data.get("authorization_code")
-        )
-        if refresh_token:
-            user.apple_refresh_token = refresh_token
-            user.save(update_fields=["apple_refresh_token"])
 
-        tokens = RefreshToken.for_user(user)
-        return Response(
-            {
-                "access": str(tokens.access_token),
-                "refresh": str(tokens),
-                "user": MeSerializer(user).data,
-                "created": created,
-            },
-            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
-        )
+class DevSignInView(APIView):
+    """Development only (404 unless DEBUG and DEV_SIGN_IN are on): sign in
+    with just a display name, so editing can be tested without Apple. The
+    same name (ignoring case) always gives the same account."""
+
+    permission_classes = [permissions.AllowAny]
+
+    @extend_schema(request=DevSignInSerializer, responses=SignInResponseSerializer)
+    def post(self, request):
+        if not settings.DEV_SIGN_IN:
+            raise Http404
+        data = DevSignInSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        name = data.validated_data["display_name"]
+        user, created = create_user(f"dev:{name.casefold()}", display_name=name)
+        return sign_in_response(user, created)
 
 
 class MeView(generics.RetrieveUpdateDestroyAPIView):

@@ -1,0 +1,966 @@
+openapi: 3.0.3
+info:
+  title: Film Recommender API
+  version: 1.0.0
+paths:
+  /api/v1/auth/apple/:
+    post:
+      operationId: auth_apple_create
+      description: |-
+        Exchange a Sign in with Apple identity token for API tokens, creating
+        the account on first sign-in. New accounts have no display name yet
+        (`user.profile_complete` is false); set one with PATCH /me/.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppleSignIn'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AppleSignIn'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AppleSignIn'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignInResponse'
+          description: ''
+  /api/v1/auth/dev/:
+    post:
+      operationId: auth_dev_create
+      description: |-
+        Development only (404 unless DEBUG and DEV_SIGN_IN are on): sign in
+        with just a display name, so editing can be tested without Apple. The
+        same name (ignoring case) always gives the same account.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DevSignIn'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DevSignIn'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DevSignIn'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignInResponse'
+          description: ''
+  /api/v1/auth/refresh/:
+    post:
+      operationId: auth_refresh_create
+      description: |-
+        Takes a refresh type JSON web token and returns an access type JSON web
+        token if the refresh token is valid.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefresh'
+          description: ''
+  /api/v1/edits/:
+    get:
+      operationId: edits_list
+      description: The review queue (pending edits, oldest first) or other edits by
+        status.
+      parameters:
+      - in: query
+        name: film
+        schema:
+          type: integer
+        description: Only edits on this TMDB id
+      - in: query
+        name: needs_my_vote
+        schema:
+          type: boolean
+        description: Only edits you didn't propose and haven't voted on
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: query
+        name: status
+        schema:
+          type: string
+          enum:
+          - approved
+          - auto_approved
+          - pending
+          - rejected
+          - withdrawn
+        description: 'Default: pending'
+      tags:
+      - edits
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedEditList'
+          description: ''
+  /api/v1/edits/{id}/:
+    get:
+      operationId: edits_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - edits
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Edit'
+          description: ''
+    delete:
+      operationId: edits_destroy
+      description: Withdraw your pending edit.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - edits
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/edits/{id}/vote/:
+    post:
+      operationId: edits_vote_create
+      description: Approve or reject a pending edit. Voting again changes your vote.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - edits
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Vote'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Vote'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Vote'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Edit'
+          description: ''
+  /api/v1/films/{tmdb_id}/:
+    get:
+      operationId: films_retrieve
+      parameters:
+      - in: path
+        name: tmdb_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - films
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FilmDetail'
+          description: ''
+  /api/v1/films/{tmdb_id}/edits/:
+    post:
+      operationId: films_edits_create
+      description: |-
+        Propose adding, replacing or removing one of a film's suggestions.
+        Send multipart form data to include an audio clip.
+      parameters:
+      - in: path
+        name: tmdb_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - films
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EditCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/EditCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/EditCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Edit'
+          description: ''
+  /api/v1/films/{tmdb_id}/history/:
+    get:
+      operationId: films_history_list
+      description: Approved changes to a film's suggestions, newest first.
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: path
+        name: tmdb_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - films
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedEditList'
+          description: ''
+  /api/v1/films/search/:
+    get:
+      operationId: films_search_list
+      parameters:
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: Title to search for
+      tags:
+      - films
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FilmSearchResult'
+          description: ''
+  /api/v1/me/:
+    get:
+      operationId: me_retrieve
+      description: |-
+        The signed-in user's profile. PATCH to set the display name; DELETE to
+        delete the account (edits stay in the history without a name).
+      tags:
+      - me
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Me'
+          description: ''
+    patch:
+      operationId: me_partial_update
+      description: |-
+        The signed-in user's profile. PATCH to set the display name; DELETE to
+        delete the account (edits stay in the history without a name).
+      tags:
+      - me
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedMe'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedMe'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedMe'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Me'
+          description: ''
+    delete:
+      operationId: me_destroy
+      description: |-
+        The signed-in user's profile. PATCH to set the display name; DELETE to
+        delete the account (edits stay in the history without a name).
+      tags:
+      - me
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/me/edits/:
+    get:
+      operationId: me_edits_list
+      description: Your own edits, newest first.
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - me
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedEditList'
+          description: ''
+  /api/v1/suggestions/{id}/report/:
+    post:
+      operationId: suggestions_report_create
+      description: Flag a suggestion as inappropriate for an admin to review.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - suggestions
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Report'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Report'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Report'
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          description: No response body
+components:
+  schemas:
+    ActionEnum:
+      enum:
+      - add
+      - replace
+      - remove
+      type: string
+      description: |-
+        * `add` - Add
+        * `replace` - Replace
+        * `remove` - Remove
+    AppleSignIn:
+      type: object
+      properties:
+        identity_token:
+          type: string
+        authorization_code:
+          type: string
+      required:
+      - identity_token
+    CastCredit:
+      type: object
+      properties:
+        tmdb_id:
+          type: integer
+        name:
+          type: string
+        character:
+          type: string
+      required:
+      - character
+      - name
+      - tmdb_id
+    DevSignIn:
+      type: object
+      properties:
+        display_name:
+          type: string
+      required:
+      - display_name
+    Edit:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        film:
+          $ref: '#/components/schemas/FilmSummary'
+        action:
+          $ref: '#/components/schemas/ActionEnum'
+        replaced_film:
+          allOf:
+          - $ref: '#/components/schemas/FilmSummary'
+          nullable: true
+        proposed_film:
+          allOf:
+          - $ref: '#/components/schemas/FilmSummary'
+          nullable: true
+        explanation:
+          type: string
+        audio_url:
+          type: string
+          nullable: true
+          readOnly: true
+        audio_duration_ms:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          nullable: true
+        language:
+          $ref: '#/components/schemas/LanguageEnum'
+        proposer:
+          type: string
+          nullable: true
+          description: The proposer's display name; null for seeded edits or deleted
+            accounts.
+          readOnly: true
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+        note:
+          type: string
+          maxLength: 255
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+        approvals:
+          type: integer
+          readOnly: true
+          default: 0
+        rejections:
+          type: integer
+          readOnly: true
+          default: 0
+        my_vote:
+          type: boolean
+          nullable: true
+          description: True = approved, False = rejected, null = hasn't voted.
+          readOnly: true
+        is_mine:
+          type: boolean
+          description: Whether the signed-in user proposed this edit (names aren't
+            unique).
+          readOnly: true
+      required:
+      - action
+      - approvals
+      - audio_url
+      - created_at
+      - film
+      - id
+      - is_mine
+      - my_vote
+      - proposed_film
+      - proposer
+      - rejections
+      - replaced_film
+    EditCreate:
+      type: object
+      properties:
+        action:
+          $ref: '#/components/schemas/ActionEnum'
+        proposed_film:
+          type: integer
+          description: TMDB id of the film to suggest (add/replace).
+        replaced_film:
+          type: integer
+          description: TMDB id of the suggested film to take out (replace/remove).
+        explanation:
+          type: string
+        audio:
+          type: string
+          format: uri
+          nullable: true
+          description: A recorded explanation instead of text.
+        language:
+          $ref: '#/components/schemas/LanguageEnum'
+      required:
+      - action
+    FilmDetail:
+      type: object
+      description: Full film info; the API adds suggestions (see suggestions.serializers).
+      properties:
+        tmdb_id:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        title:
+          type: string
+          readOnly: true
+        original_title:
+          type: string
+          maxLength: 500
+        year:
+          type: integer
+          nullable: true
+          readOnly: true
+        runtime:
+          type: integer
+          maximum: 32767
+          minimum: 0
+          nullable: true
+        poster_url:
+          type: string
+          nullable: true
+          readOnly: true
+        directors:
+          type: array
+          items:
+            $ref: '#/components/schemas/PersonCredit'
+          readOnly: true
+        top_cast:
+          type: array
+          items:
+            type: string
+          description: The first few billed actors' names.
+          readOnly: true
+        imdb_id:
+          type: string
+          maxLength: 20
+        original_language:
+          type: string
+          maxLength: 10
+        release_date:
+          type: string
+          format: date
+          nullable: true
+        overview:
+          type: string
+          readOnly: true
+        tagline:
+          type: string
+          readOnly: true
+        genres:
+          type: array
+          items:
+            type: string
+          readOnly: true
+        cast:
+          type: array
+          items:
+            $ref: '#/components/schemas/CastCredit'
+          readOnly: true
+        vote_average:
+          type: number
+          format: double
+        vote_count:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        backdrop_url:
+          type: string
+          nullable: true
+          readOnly: true
+        suggestions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Suggestion'
+          readOnly: true
+        max_suggestions:
+          type: integer
+          description: How many suggestions a film can have; more can be added below
+            this.
+          readOnly: true
+      required:
+      - backdrop_url
+      - cast
+      - directors
+      - genres
+      - max_suggestions
+      - original_title
+      - overview
+      - poster_url
+      - suggestions
+      - tagline
+      - title
+      - tmdb_id
+      - top_cast
+      - year
+    FilmSearchResult:
+      type: object
+      description: Compact film info for search results and suggestion cards.
+      properties:
+        tmdb_id:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        title:
+          type: string
+          readOnly: true
+        original_title:
+          type: string
+          maxLength: 500
+        year:
+          type: integer
+          nullable: true
+          readOnly: true
+        runtime:
+          type: integer
+          maximum: 32767
+          minimum: 0
+          nullable: true
+        poster_url:
+          type: string
+          nullable: true
+          readOnly: true
+        directors:
+          type: array
+          items:
+            type: string
+          readOnly: true
+        top_cast:
+          type: array
+          items:
+            type: string
+          description: The first few billed actors' names.
+          readOnly: true
+        matched_title:
+          type: string
+          nullable: true
+          description: |-
+            The title the search matched, when it isn't the one being shown
+            (e.g. the original title of a foreign film); otherwise null.
+          readOnly: true
+      required:
+      - directors
+      - matched_title
+      - original_title
+      - poster_url
+      - title
+      - tmdb_id
+      - top_cast
+      - year
+    FilmSummary:
+      type: object
+      description: Compact film info for search results and suggestion cards.
+      properties:
+        tmdb_id:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        title:
+          type: string
+          readOnly: true
+        original_title:
+          type: string
+          maxLength: 500
+        year:
+          type: integer
+          nullable: true
+          readOnly: true
+        runtime:
+          type: integer
+          maximum: 32767
+          minimum: 0
+          nullable: true
+        poster_url:
+          type: string
+          nullable: true
+          readOnly: true
+        directors:
+          type: array
+          items:
+            type: string
+          readOnly: true
+        top_cast:
+          type: array
+          items:
+            type: string
+          description: The first few billed actors' names.
+          readOnly: true
+      required:
+      - directors
+      - original_title
+      - poster_url
+      - title
+      - tmdb_id
+      - top_cast
+      - year
+    LanguageEnum:
+      enum:
+      - en
+      - fr
+      - de
+      - es
+      - it
+      - pt
+      type: string
+      description: |-
+        * `en` - English
+        * `fr` - French
+        * `de` - German
+        * `es` - Spanish
+        * `it` - Italian
+        * `pt` - Portuguese
+    Me:
+      type: object
+      properties:
+        display_name:
+          type: string
+          maxLength: 50
+        profile_complete:
+          type: boolean
+          description: |-
+            False until the user has chosen a display name; the app should ask
+            for one (pre-filled with the first name Apple shares) before letting
+            them propose or vote.
+          readOnly: true
+        can_moderate:
+          type: boolean
+          readOnly: true
+        date_joined:
+          type: string
+          format: date-time
+          readOnly: true
+        pending_edits:
+          type: integer
+          readOnly: true
+        max_pending_edits:
+          type: integer
+          readOnly: true
+      required:
+      - can_moderate
+      - date_joined
+      - max_pending_edits
+      - pending_edits
+      - profile_complete
+    PaginatedEditList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Edit'
+    PatchedMe:
+      type: object
+      properties:
+        display_name:
+          type: string
+          maxLength: 50
+        profile_complete:
+          type: boolean
+          description: |-
+            False until the user has chosen a display name; the app should ask
+            for one (pre-filled with the first name Apple shares) before letting
+            them propose or vote.
+          readOnly: true
+        can_moderate:
+          type: boolean
+          readOnly: true
+        date_joined:
+          type: string
+          format: date-time
+          readOnly: true
+        pending_edits:
+          type: integer
+          readOnly: true
+        max_pending_edits:
+          type: integer
+          readOnly: true
+    PersonCredit:
+      type: object
+      properties:
+        tmdb_id:
+          type: integer
+        name:
+          type: string
+      required:
+      - name
+      - tmdb_id
+    Report:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 1000
+    SignInResponse:
+      type: object
+      properties:
+        access:
+          type: string
+        refresh:
+          type: string
+        user:
+          $ref: '#/components/schemas/Me'
+        created:
+          type: boolean
+      required:
+      - access
+      - created
+      - refresh
+      - user
+    StatusEnum:
+      enum:
+      - pending
+      - approved
+      - auto_approved
+      - rejected
+      - withdrawn
+      type: string
+      description: |-
+        * `pending` - Pending
+        * `approved` - Approved
+        * `auto_approved` - Auto-approved
+        * `rejected` - Rejected
+        * `withdrawn` - Withdrawn
+    Suggestion:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        film:
+          $ref: '#/components/schemas/FilmSummary'
+        explanation:
+          type: string
+        audio_url:
+          type: string
+          nullable: true
+          readOnly: true
+        audio_duration_ms:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          nullable: true
+        language:
+          $ref: '#/components/schemas/LanguageEnum'
+        recommended_by:
+          type: string
+          nullable: true
+          description: |-
+            The recommender's display name; null for seeded suggestions or
+            deleted accounts.
+          readOnly: true
+      required:
+      - audio_url
+      - film
+      - id
+      - recommended_by
+    TokenRefresh:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+      required:
+      - access
+      - refresh
+    Vote:
+      type: object
+      properties:
+        approve:
+          type: boolean
+        comment:
+          type: string
+          maxLength: 500
+      required:
+      - approve
+  securitySchemes:
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

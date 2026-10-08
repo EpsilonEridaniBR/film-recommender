@@ -33,6 +33,17 @@ LOCALE_PREFERENCES = {
 
 CAST_LIMIT = 10
 
+# Alternative titles are kept from these regions only, as the language people
+# there would search in. (Canada is left out: English or French is unclear.)
+ALTERNATIVE_TITLE_REGIONS = {
+    "US": "en", "GB": "en",
+    "FR": "fr",
+    "DE": "de", "AT": "de",
+    "ES": "es", "MX": "es",
+    "IT": "it",
+    "BR": "pt", "PT": "pt",
+}  # fmt: skip
+
 
 class TmdbError(Exception):
     pass
@@ -97,7 +108,7 @@ class TmdbClient:
     def movie(self, tmdb_id):
         data = self.get(
             f"/movie/{tmdb_id}",
-            append_to_response="credits,translations,external_ids",
+            append_to_response="credits,translations,external_ids,alternative_titles",
         )
         return parse_movie(data) if data else None
 
@@ -173,6 +184,8 @@ class ParsedMovie:
     translations: dict[str, dict[str, str]]
     directors: list[dict] = field(default_factory=list)
     cast: list[dict] = field(default_factory=list)
+    # language -> other titles the film is known by there, e.g. "Seven" for Se7en.
+    alternative_titles: dict[str, list[str]] = field(default_factory=dict)
 
 
 def parse_movie(data):
@@ -232,6 +245,13 @@ def parse_movie(data):
         for i, c in enumerate(credits.get("cast", [])[:CAST_LIMIT])
     ]
 
+    alternative_titles = {}
+    for alt in data.get("alternative_titles", {}).get("titles", []):
+        language = ALTERNATIVE_TITLE_REGIONS.get(alt.get("iso_3166_1"))
+        title = (alt.get("title") or "").strip()
+        if language and title:
+            alternative_titles.setdefault(language, []).append(title)
+
     release_date = None
     if data.get("release_date"):
         try:
@@ -258,4 +278,5 @@ def parse_movie(data):
         translations=translations,
         directors=directors,
         cast=cast,
+        alternative_titles=alternative_titles,
     )

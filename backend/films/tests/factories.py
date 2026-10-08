@@ -14,6 +14,7 @@ def tmdb_movie(
     directors=("Some Director",),
     genres=(),
     release_date="2016-11-10",
+    alternative_titles=(),
 ):
     """Build a raw TMDB /movie response (with appended credits/translations)."""
     return {
@@ -43,6 +44,12 @@ def tmdb_movie(
                 for name in directors
             ],
             "cast": [{"id": 2000, "name": "Lead Actor", "character": "Hero"}],
+        },
+        "alternative_titles": {
+            "titles": [
+                {"iso_3166_1": region, "title": t, "type": ""}
+                for region, t in alternative_titles
+            ]
         },
         "translations": {
             "translations": [

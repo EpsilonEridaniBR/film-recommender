@@ -143,3 +143,57 @@ def test_delete_account_revokes_apple_token(user_client, django_user_model):
     assert response.status_code == 204
     revoke.assert_called_once_with("apple-refresh")
     assert not django_user_model.objects.exists()
+
+
+def dev_sign_in(client, display_name="Alice"):
+    return client.post(
+        "/api/v1/auth/dev/",
+        {"display_name": display_name},
+        content_type="application/json",
+    )
+
+
+def test_dev_sign_in_is_off_without_the_setting(client, settings):
+    settings.DEV_SIGN_IN = False
+    assert dev_sign_in(client).status_code == 404
+
+
+def test_dev_sign_in_creates_a_moderator_with_that_name(client, settings):
+    settings.DEV_SIGN_IN = True
+    response = dev_sign_in(client, "  Alice  ")
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["created"] is True
+    assert body["user"]["display_name"] == "Alice"
+    assert body["user"]["can_moderate"] is True
+    assert body["user"]["profile_complete"] is True
+
+    me = client.get("/api/v1/me/", HTTP_AUTHORIZATION=f"Bearer {body['access']}").json()
+    assert me["display_name"] == "Alice"
+
+
+def test_dev_sign_in_with_the_same_name_gives_the_same_account(
+    client, settings, django_user_model
+):
+    settings.DEV_SIGN_IN = True
+    dev_sign_in(client, "Alice")
+    response = dev_sign_in(client, "alice")
+
+    assert response.status_code == 200
+    assert response.json()["user"]["display_name"] == "Alice"
+    assert django_user_model.objects.count() == 1
+    dev_sign_in(client, "Bob")
+    assert django_user_model.objects.count() == 2
+
+
+def test_dev_sign_in_needs_a_name(client, settings):
+    settings.DEV_SIGN_IN = True
+    assert dev_sign_in(client, "   ").status_code == 400
+
+
+def test_dev_sign_in_refuses_disabled_accounts(client, settings, django_user_model):
+    settings.DEV_SIGN_IN = True
+    dev_sign_in(client)
+    django_user_model.objects.update(is_active=False)
+    assert dev_sign_in(client).status_code == 403

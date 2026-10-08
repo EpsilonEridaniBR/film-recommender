@@ -1,10 +1,12 @@
 from django.conf import settings
 from django.db.models import Count, OuterRef, Q, Subquery
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from films.models import Film
-from films.serializers import FilmSummarySerializer
-from films.views import with_display_data
+from films.importer import normalise_title
+from films.queries import with_display_data
+from films.serializers import FilmInfoSerializer, FilmSummarySerializer
 
 from .models import EditVote, Suggestion, SuggestionEdit
 
@@ -45,6 +47,26 @@ class SuggestionSerializer(serializers.ModelSerializer):
         return (user.display_name or None) if user else None
 
 
+class FilmDetailSerializer(FilmInfoSerializer):
+    suggestions = serializers.SerializerMethodField()
+    max_suggestions = serializers.SerializerMethodField()
+
+    class Meta(FilmInfoSerializer.Meta):
+        fields = FilmInfoSerializer.Meta.fields + ["suggestions", "max_suggestions"]
+
+    def get_max_suggestions(self, film) -> int:
+        """How many suggestions a film can have; more can be added below this."""
+        return settings.SUGGESTIONS_PER_FILM
+
+    @extend_schema_field(SuggestionSerializer(many=True))
+    def get_suggestions(self, film):
+        data = SuggestionSerializer(
+            film.suggestions.all(), many=True, context=self.context
+        ).data
+        # Suggestions have no order of their own: alphabetical in the reader's language.
+        return sorted(data, key=lambda s: normalise_title(s["film"]["title"]))
+
+
 def edits_for_display(queryset, user=None):
     """Annotate vote tallies (and the user's own vote) and prefetch film data."""
     for prefix in ("source_film__", "proposed_film__", "replaced_film__"):
@@ -75,6 +97,7 @@ class EditSerializer(serializers.ModelSerializer):
     approvals = serializers.IntegerField(read_only=True, default=0)
     rejections = serializers.IntegerField(read_only=True, default=0)
     my_vote = serializers.SerializerMethodField()
+    is_mine = serializers.SerializerMethodField()
 
     class Meta:
         model = SuggestionEdit
@@ -96,6 +119,7 @@ class EditSerializer(serializers.ModelSerializer):
             "approvals",
             "rejections",
             "my_vote",
+            "is_mine",
         ]
 
     def get_proposer(self, edit) -> str | None:
@@ -108,6 +132,12 @@ class EditSerializer(serializers.ModelSerializer):
     def get_my_vote(self, edit) -> bool | None:
         """True = approved, False = rejected, null = hasn't voted."""
         return getattr(edit, "my_vote", None)
+
+    def get_is_mine(self, edit) -> bool:
+        """Whether the signed-in user proposed this edit (names aren't unique)."""
+        request = self.context.get("request")
+        user = request.user if request else None
+        return bool(user and user.is_authenticated and edit.proposer_id == user.pk)
 
 
 class FilmByTmdbIdField(serializers.IntegerField):

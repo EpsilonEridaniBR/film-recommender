@@ -90,17 +90,34 @@ class Credit(models.Model):
 
 
 class FilmSearchTitle(models.Model):
-    """Every known title of a film (original + each translation), normalised
-    for search: lower-cased, accents and punctuation stripped."""
+    """One of a film's titles (its original title, its title in a catalogue
+    language, or an alternative title), with a normalised copy for searching."""
+
+    # `language` value for the film's original title.
+    ORIGINAL = "original"
+    # Alternative titles (e.g. "Seven" for Se7en) are stored as "alt-<language>".
+    ALTERNATIVE_PREFIX = "alt-"
+
+    @classmethod
+    def alternative(cls, language):
+        return f"{cls.ALTERNATIVE_PREFIX}{language}"
+
+    @classmethod
+    def is_alternative_language(cls, language):
+        return language.startswith(cls.ALTERNATIVE_PREFIX)
 
     film = models.ForeignKey(
         Film, on_delete=models.CASCADE, related_name="search_titles"
     )
+    language = models.CharField(max_length=10)
+    title = models.CharField(max_length=500)
     text = models.CharField(max_length=500)
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["film", "text"], name="unique_film_text")
+            models.UniqueConstraint(
+                fields=["film", "language", "text"], name="unique_film_language_text"
+            )
         ]
         indexes = [
             GinIndex(OpClass("text", name="gin_trgm_ops"), name="filmsearchtitle_trgm"),

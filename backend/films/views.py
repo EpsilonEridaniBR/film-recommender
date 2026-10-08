@@ -1,27 +1,21 @@
 from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
+from django.utils import translation
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import generics
 from rest_framework.throttling import ScopedRateThrottle
 
 from suggestions.models import Suggestion
+from suggestions.serializers import FilmDetailSerializer
 
-from .models import Credit, Film
+from .models import Film
+from .queries import with_display_data
 from .search import search_films
-from .serializers import FilmDetailSerializer, FilmSummarySerializer
-
-
-def with_display_data(queryset, prefix=""):
-    """Prefetch everything the film serializers read, avoiding N+1 queries."""
-    return queryset.prefetch_related(
-        f"{prefix}translations",
-        f"{prefix}genres__translations",
-        Prefetch(f"{prefix}credits", queryset=Credit.objects.select_related("person")),
-    )
+from .serializers import FilmSearchResultSerializer
 
 
 class FilmSearchView(generics.ListAPIView):
-    serializer_class = FilmSummarySerializer
+    serializer_class = FilmSearchResultSerializer
     pagination_class = None
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "search"
@@ -36,7 +30,7 @@ class FilmSearchView(generics.ListAPIView):
         query = self.request.query_params.get("q", "").strip()
         if len(query) < 2:
             return Film.objects.none()
-        return with_display_data(search_films(query))
+        return with_display_data(search_films(query, translation.get_language()[:2]))
 
 
 class FilmDetailView(generics.RetrieveAPIView):

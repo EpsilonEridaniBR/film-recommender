@@ -39,6 +39,11 @@ def test_film_without_suggestions(client, films):
     assert client.get("/api/v1/films/289/").json()["suggestions"] == []
 
 
+def test_film_detail_says_how_many_suggestions_are_allowed(client, films, settings):
+    settings.SUGGESTIONS_PER_FILM = 4
+    assert client.get("/api/v1/films/289/").json()["max_suggestions"] == 4
+
+
 def test_detail_query_count_does_not_grow_with_suggestions(client, films):
     add(films, "Casablanca", "Arrival")
     with CaptureQueriesContext(connection) as one:

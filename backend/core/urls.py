@@ -1,5 +1,4 @@
 from django.conf import settings
-from django.conf.urls.static import static
 from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import include, path
@@ -25,5 +24,9 @@ urlpatterns = [
 ]
 
 if settings.DEBUG and getattr(settings, "MEDIA_URL", None):
+    from .media import serve_media
+
     # Local audio files in development; production uses Spaces.
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    urlpatterns.append(
+        path(f"{settings.MEDIA_URL.lstrip('/')}<path:path>", serve_media)
+    )

@@ -107,6 +107,9 @@ def test_queue_vote_and_history(as_user, casablanca_with_arrival):
     queue = as_user("bob").get("/api/v1/edits/").json()
     assert [e["id"] for e in queue["results"]] == [edit_id]
     assert queue["results"][0]["my_vote"] is None
+    assert queue["results"][0]["is_mine"] is False
+    own_queue = as_user("alice").get("/api/v1/edits/").json()
+    assert own_queue["results"][0]["is_mine"] is True
 
     first = (
         as_user("bob")

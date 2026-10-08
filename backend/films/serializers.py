@@ -1,7 +1,10 @@
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from .importer import normalise_title
 from .models import Credit, Film
+
+TOP_CAST_IN_SUMMARY = 3
 
 
 class PersonCreditSerializer(serializers.Serializer):
@@ -20,6 +23,7 @@ class FilmSummarySerializer(serializers.ModelSerializer):
     year = serializers.SerializerMethodField()
     poster_url = serializers.SerializerMethodField()
     directors = serializers.SerializerMethodField()
+    top_cast = serializers.SerializerMethodField()
 
     class Meta:
         model = Film
@@ -31,6 +35,7 @@ class FilmSummarySerializer(serializers.ModelSerializer):
             "runtime",
             "poster_url",
             "directors",
+            "top_cast",
         ]
 
     def get_title(self, film) -> str:
@@ -50,15 +55,37 @@ class FilmSummarySerializer(serializers.ModelSerializer):
             c.person.name for c in film.credits.all() if c.role == Credit.Role.DIRECTOR
         ]
 
+    def get_top_cast(self, film) -> list[str]:
+        """The first few billed actors' names."""
+        cast = [c for c in film.credits.all() if c.role == Credit.Role.CAST]
+        return [c.person.name for c in cast[:TOP_CAST_IN_SUMMARY]]
 
-class FilmDetailSerializer(FilmSummarySerializer):
+
+class FilmSearchResultSerializer(FilmSummarySerializer):
+    matched_title = serializers.SerializerMethodField()
+
+    class Meta(FilmSummarySerializer.Meta):
+        fields = FilmSummarySerializer.Meta.fields + ["matched_title"]
+
+    def get_matched_title(self, film) -> str | None:
+        """The title the search matched, when it isn't the one being shown
+        (e.g. the original title of a foreign film); otherwise null."""
+        matched = getattr(film, "matched_title", None)
+        if not matched:
+            return None
+        shown = self.get_title(film)
+        return None if normalise_title(matched) == normalise_title(shown) else matched
+
+
+class FilmInfoSerializer(FilmSummarySerializer):
+    """Full film info; the API adds suggestions (see suggestions.serializers)."""
+
     overview = serializers.SerializerMethodField()
     tagline = serializers.SerializerMethodField()
     genres = serializers.SerializerMethodField()
     directors = serializers.SerializerMethodField()
     cast = serializers.SerializerMethodField()
     backdrop_url = serializers.SerializerMethodField()
-    suggestions = serializers.SerializerMethodField()
 
     class Meta(FilmSummarySerializer.Meta):
         fields = FilmSummarySerializer.Meta.fields + [
@@ -72,7 +99,6 @@ class FilmDetailSerializer(FilmSummarySerializer):
             "vote_average",
             "vote_count",
             "backdrop_url",
-            "suggestions",
         ]
 
     def get_overview(self, film) -> str:
@@ -84,23 +110,15 @@ class FilmDetailSerializer(FilmSummarySerializer):
     def get_genres(self, film) -> list[str]:
         return [str(g) for g in film.genres.all()]
 
-    def get_directors(self, film) -> list[dict]:
+    @extend_schema_field(PersonCreditSerializer(many=True))
+    def get_directors(self, film):
         credits = [c for c in film.credits.all() if c.role == Credit.Role.DIRECTOR]
         return PersonCreditSerializer(credits, many=True).data
 
-    def get_cast(self, film) -> list[dict]:
+    @extend_schema_field(CastCreditSerializer(many=True))
+    def get_cast(self, film):
         credits = [c for c in film.credits.all() if c.role == Credit.Role.CAST][:5]
         return CastCreditSerializer(credits, many=True).data
 
     def get_backdrop_url(self, film) -> str | None:
         return film.backdrop_url()
-
-    def get_suggestions(self, film) -> list[dict]:
-        # Imported here: suggestions' serializers build on this module.
-        from suggestions.serializers import SuggestionSerializer
-
-        data = SuggestionSerializer(
-            film.suggestions.all(), many=True, context=self.context
-        ).data
-        # Suggestions have no order of their own: alphabetical in the reader's language.
-        return sorted(data, key=lambda s: normalise_title(s["film"]["title"]))
